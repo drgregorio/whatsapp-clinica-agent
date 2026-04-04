@@ -14,65 +14,65 @@ const HUMAN_PHONE = process.env.HUMAN_PHONE;
 
 const conversations = new Map();
 
-const SYSTEM_PROMPT = `You are the virtual receptionist for Vitalumina, an advanced aesthetic medicine clinic in London led by Dr. Gregorio De Carvalho.
+const SYSTEM_PROMPT = `You are the virtual receptionist for Dr. Gregorio De Carvalho, a specialist in aesthetic medicine working across two clinics in London.
 
 Always communicate in the same language the patient uses (English or Spanish).
 
-ABOUT VITALUMINA:
-- Doctor-led aesthetic clinic focused on natural, subtle, personalised results
-- Led by Dr. Gregorio De Carvalho with 12+ years in aesthetic medicine
-- Philosophy: natural-looking results, never the overfilled look
-- Every treatment performed personally by Dr. Gregorio
+CLINIC 1: VITALUMINA
+Website: vitalumina.co.uk
+Doctor-led advanced aesthetic medicine. Natural, personalised results.
+Dr. Gregorio De Carvalho - 12+ years in aesthetic medicine.
+Philosophy: natural-looking results, never the overfilled look.
 
-CLINIC LOCATIONS:
+VITALUMINA LOCATIONS:
 - PRIMARY: Dr Gregorio Aesthetic @ L&Y Dental Clinic, 36-38 Cornhill, London EC3V 3ND
-- ALSO: Chelsea Bridge Clinic, Ground Floor, Riverfront, 368 Queenstown Rd, London SW11 8NN
+- ALSO: Chelsea Bridge Clinic, 368 Queenstown Rd, London SW11 8NN
 - ALSO: Rejuva-London, 15 Harley St, London W1G 9QQ
 
-TREATMENTS OFFERED:
-
-INJECTABLES & CONTOURING:
-- Wrinkle-Relaxing Injections (Botulinum Toxin Type A / Anti-wrinkle) - softens wrinkles and fine lines
-- Calf Reduction - Botox to slim and contour calves for a sleeker leg silhouette
-- Shoulder Contour Treatment (Trap Tox) - slimmer, more defined shoulder line
-- Mini Thread Lift - minimally invasive lift to tighten skin without surgery
-- Dermal Fillers (Hyaluronic Acid) - restores volume, reduces acne scars, improves hydration on face, hands, neck, decollete
-- Excessive Sweating / Hyperhidrosis - Botox micro-injections to reduce sweat gland activity in underarms, hands, feet or face
-- Filler Dissolving (Hyaluronidase) - enzyme injections to soften or remove previous HA filler
-- Fat-Dissolving Injections (Body & Chin) - breaks down localised fat: double chin, jawline, bra/back rolls, abdomen, flanks
-
-FACIAL AESTHETICS:
+VITALUMINA TREATMENTS:
+Injectables & Contouring:
+- Wrinkle-Relaxing Injections (Botox / Botulinum Toxin Type A)
+- Calf Reduction (Botox to slim and contour calves)
+- Shoulder Contour / Trap Tox
+- Mini Thread Lift (minimally invasive skin lifting)
+- Dermal Fillers - Hyaluronic Acid (face, hands, neck, decollete)
+- Hyperhidrosis / Excessive Sweating treatment
+- Filler Dissolving (Hyaluronidase)
+- Fat-Dissolving Injections (chin, jawline, abdomen, flanks, bra rolls)
+Facial Aesthetics:
 - Lip Enhancement & Definition
 - Cheek & Jawline Contouring
-- Non-Surgical Rhinoplasty (Nose Job without surgery)
+- Non-Surgical Rhinoplasty
 - Under-Eye / Tear Trough Treatment
 - Brow Lift
 - Neck & Decollete Rejuvenation
+Skin Treatments:
+- Profhilo (skin remodelling biostimulator)
+- Polynucleotides / PDRN (advanced skin regeneration)
+- Skin Boosters, Chemical Peels, Microneedling
 
-SKIN TREATMENTS:
-- Profhilo (skin remodelling and hydration biostimulator)
-- Polynucleotides (PDRN/PN - advanced skin regeneration)
-- Skin Boosters
-- Chemical Peels
-- Microneedling
+CLINIC 2: ICE HEALTH CRYOTHERAPY (Private Consultation)
+Address: 237 Kensington High St, London W8 6SA
+Dr. Gregorio holds private aesthetic consultations here.
+Hours: Monday-Friday 9:30 AM - 7:00 PM, Saturday 9:30 AM - 4:00 PM, Sunday Closed
+Patients can book with Dr. Gregorio here for the same Vitalumina aesthetic treatments.
 
 HOW TO BOOK:
-- Online booking available at vitalumina.co.uk
-- Consultations are private and personalised
-- Patients are seen personally by Dr. Gregorio
+Collect: full name, phone number, treatment/concern, preferred location and date/time.
+Location options: Cornhill (primary), Chelsea Bridge, Harley St, or Kensington/Ice Health.
+Online booking also at vitalumina.co.uk
 
-RECEPTIONIST GUIDELINES:
-- Be warm, professional and elegant - matching the clinic's tone
-- Answer questions about treatments, pricing (say prices vary and a consultation is needed for exact quotes), locations and booking
-- When booking, collect: full name, phone number, desired treatment/concern, preferred location, preferred date and time
-- For urgent medical concerns or complex queries, use the escalate_to_human tool
+GUIDELINES:
+- Be warm, professional and elegant
+- For pricing: explain that prices vary and a consultation is needed for exact quotes
 - Never give specific medical advice - always recommend a consultation with Dr. Gregorio
-- Emphasise the doctor-led, natural-results approach of Vitalumina`;
+- For urgent or complex queries use escalate_to_human tool`;
 
 async function pabauGet(path) {
   const res = await fetch(`${PABAU_BASE}/${path}`);
   return res.json();
 }
+
 async function pabauPost(path, body) {
   const res = await fetch(`${PABAU_BASE}/${path}`, {
     method: "POST",
@@ -81,6 +81,7 @@ async function pabauPost(path, body) {
   });
   return res.json();
 }
+
 async function findOrCreateClient({ name, phone }) {
   try {
     const search = await pabauGet(`clients?mobile=${phone}`);
@@ -93,55 +94,18 @@ async function findOrCreateClient({ name, phone }) {
 }
 
 const TOOLS = [
-  {
-    name: "check_availability",
-    description: "Check available appointment slots for a given date at Vitalumina",
-    input_schema: {
-      type: "object",
-      properties: { date: { type: "string", description: "Date in YYYY-MM-DD format" } },
-      required: ["date"],
-    },
-  },
-  {
-    name: "book_appointment",
-    description: "Book an appointment for a patient at Vitalumina",
-    input_schema: {
-      type: "object",
-      properties: {
-        patient_name: { type: "string" },
-        patient_phone: { type: "string" },
-        service: { type: "string" },
-        date: { type: "string" },
-        time: { type: "string" },
-        location: { type: "string", description: "Preferred clinic location" },
-      },
-      required: ["patient_name", "patient_phone", "service", "date", "time"],
-    },
-  },
-  {
-    name: "cancel_appointment",
-    description: "Cancel an existing appointment",
-    input_schema: {
-      type: "object",
-      properties: {
-        patient_phone: { type: "string" },
-        appointment_id: { type: "string" },
-      },
-      required: ["patient_phone"],
-    },
-  },
-  {
-    name: "escalate_to_human",
-    description: "Transfer the conversation to Dr. Gregorio or a staff member",
-    input_schema: {
-      type: "object",
-      properties: {
-        reason: { type: "string" },
-        patient_name: { type: "string" },
-      },
-      required: ["reason"],
-    },
-  },
+  { name: "check_availability", description: "Check available appointment slots for a given date",
+    input_schema: { type: "object", properties: { date: { type: "string", description: "Date in YYYY-MM-DD format" } }, required: ["date"] } },
+  { name: "book_appointment", description: "Book an appointment for a patient with Dr. Gregorio",
+    input_schema: { type: "object", properties: {
+      patient_name: { type: "string" }, patient_phone: { type: "string" }, service: { type: "string" },
+      date: { type: "string" }, time: { type: "string" },
+      location: { type: "string", description: "Preferred clinic: Cornhill, Chelsea Bridge, Harley St, or Kensington/Ice Health" }
+    }, required: ["patient_name", "patient_phone", "service", "date", "time"] } },
+  { name: "cancel_appointment", description: "Cancel an existing appointment",
+    input_schema: { type: "object", properties: { patient_phone: { type: "string" }, appointment_id: { type: "string" } }, required: ["patient_phone"] } },
+  { name: "escalate_to_human", description: "Transfer conversation to Dr. Gregorio or clinic staff",
+    input_schema: { type: "object", properties: { reason: { type: "string" }, patient_name: { type: "string" } }, required: ["reason"] } },
 ];
 
 async function executeTool(name, input) {
@@ -155,7 +119,7 @@ async function executeTool(name, input) {
     const appt = await pabauPost("appointments/create", {
       client_id: client.id, service: input.service,
       start_date: input.date, start_time: input.time,
-      notes: `Booked via WhatsApp. Location preference: ${input.location || "Any"}`,
+      notes: `Booked via WhatsApp. Location: ${input.location || "TBC"}`,
     });
     return { success: true, appointment: appt };
   }
@@ -170,7 +134,7 @@ async function executeTool(name, input) {
   if (name === "escalate_to_human") {
     if (HUMAN_PHONE) {
       await sendWhatsAppMessage(HUMAN_PHONE,
-        `🌿 Vitalumina - Patient query\nReason: ${input.reason}\nPatient: ${input.patient_name || "Unknown"}`);
+        `Dr. Gregorio - Patient query\nReason: ${input.reason}\nPatient: ${input.patient_name || "Unknown"}`);
     }
     return { success: true, message: "Our team has been notified and will be in touch shortly." };
   }
@@ -190,21 +154,15 @@ async function runAgent(from, userText) {
   const history = conversations.get(from);
   history.push({ role: "user", content: userText });
   if (history.length > 20) history.splice(0, history.length - 20);
-
   let response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    tools: TOOLS,
-    messages: history,
+    model: "claude-sonnet-4-20250514", max_tokens: 1024,
+    system: SYSTEM_PROMPT, tools: TOOLS, messages: history,
   });
-
   while (response.stop_reason === "tool_use") {
     history.push({ role: "assistant", content: response.content });
     const toolResults = [];
     for (const block of response.content) {
       if (block.type === "tool_use") {
-        console.log(`[Tool] ${block.name}`, block.input);
         const result = await executeTool(block.name, block.input);
         toolResults.push({ type: "tool_result", tool_use_id: block.id, content: JSON.stringify(result) });
       }
@@ -215,20 +173,15 @@ async function runAgent(from, userText) {
       system: SYSTEM_PROMPT, tools: TOOLS, messages: history,
     });
   }
-
-  const replyText = response.content.find((b) => b.type === "text")?.text || "I'm sorry, I could not process your request. Please contact us at vitalumina.co.uk";
+  const replyText = response.content.find((b) => b.type === "text")?.text || "I'm sorry, please visit vitalumina.co.uk";
   history.push({ role: "assistant", content: replyText });
   return replyText;
 }
 
 app.get("/webhook", (req, res) => {
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("Webhook verified ✓");
-    res.status(200).send(challenge);
-  } else { res.sendStatus(403); }
+  const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
+  if (mode === "subscribe" && token === VERIFY_TOKEN) res.status(200).send(challenge);
+  else res.sendStatus(403);
 });
 
 app.post("/webhook", async (req, res) => {
@@ -236,20 +189,12 @@ app.post("/webhook", async (req, res) => {
   try {
     const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!message || message.type !== "text") return;
-    const from = message.from;
-    const text = message.text.body;
-    console.log(`[IN] ${from}: ${text}`);
-    const reply = await runAgent(from, text);
-    console.log(`[OUT] ${from}: ${reply}`);
-    await sendWhatsAppMessage(from, reply);
+    const reply = await runAgent(message.from, message.text.body);
+    await sendWhatsAppMessage(message.from, reply);
   } catch (err) { console.error("Webhook error:", err); }
 });
 
-app.get("/", (req, res) => res.json({ 
-  status: "ok", 
-  service: "Vitalumina WhatsApp Receptionist",
-  clinic: "vitalumina.co.uk"
-}));
+app.get("/", (req, res) => res.json({ status: "ok", service: "Dr. Gregorio - Vitalumina & Ice Health Receptionist" }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🌿 Vitalumina WhatsApp Agent running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
