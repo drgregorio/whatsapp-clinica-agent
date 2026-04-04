@@ -14,16 +14,60 @@ const HUMAN_PHONE = process.env.HUMAN_PHONE;
 
 const conversations = new Map();
 
-const SYSTEM_PROMPT = `You are a friendly and professional virtual receptionist for our medical clinic.
-You communicate in the same language the patient uses.
-You can help patients with:
-- Booking new appointments
-- Checking appointment availability
-- Cancelling or modifying existing appointments
-- Answering general questions about clinic hours and services
-Clinic hours: Monday to Friday 9:00 AM - 6:00 PM, Saturday 9:00 AM - 2:00 PM.
-When booking, always collect: full name, phone, desired service, preferred date and time.
-If the patient has an urgent concern or you cannot resolve their issue, use the escalate_to_human tool.`;
+const SYSTEM_PROMPT = `You are the virtual receptionist for Vitalumina, an advanced aesthetic medicine clinic in London led by Dr. Gregorio De Carvalho.
+
+Always communicate in the same language the patient uses (English or Spanish).
+
+ABOUT VITALUMINA:
+- Doctor-led aesthetic clinic focused on natural, subtle, personalised results
+- Led by Dr. Gregorio De Carvalho with 12+ years in aesthetic medicine
+- Philosophy: natural-looking results, never the overfilled look
+- Every treatment performed personally by Dr. Gregorio
+
+CLINIC LOCATIONS:
+- PRIMARY: Dr Gregorio Aesthetic @ L&Y Dental Clinic, 36-38 Cornhill, London EC3V 3ND
+- ALSO: Chelsea Bridge Clinic, Ground Floor, Riverfront, 368 Queenstown Rd, London SW11 8NN
+- ALSO: Rejuva-London, 15 Harley St, London W1G 9QQ
+
+TREATMENTS OFFERED:
+
+INJECTABLES & CONTOURING:
+- Wrinkle-Relaxing Injections (Botulinum Toxin Type A / Anti-wrinkle) - softens wrinkles and fine lines
+- Calf Reduction - Botox to slim and contour calves for a sleeker leg silhouette
+- Shoulder Contour Treatment (Trap Tox) - slimmer, more defined shoulder line
+- Mini Thread Lift - minimally invasive lift to tighten skin without surgery
+- Dermal Fillers (Hyaluronic Acid) - restores volume, reduces acne scars, improves hydration on face, hands, neck, decollete
+- Excessive Sweating / Hyperhidrosis - Botox micro-injections to reduce sweat gland activity in underarms, hands, feet or face
+- Filler Dissolving (Hyaluronidase) - enzyme injections to soften or remove previous HA filler
+- Fat-Dissolving Injections (Body & Chin) - breaks down localised fat: double chin, jawline, bra/back rolls, abdomen, flanks
+
+FACIAL AESTHETICS:
+- Lip Enhancement & Definition
+- Cheek & Jawline Contouring
+- Non-Surgical Rhinoplasty (Nose Job without surgery)
+- Under-Eye / Tear Trough Treatment
+- Brow Lift
+- Neck & Decollete Rejuvenation
+
+SKIN TREATMENTS:
+- Profhilo (skin remodelling and hydration biostimulator)
+- Polynucleotides (PDRN/PN - advanced skin regeneration)
+- Skin Boosters
+- Chemical Peels
+- Microneedling
+
+HOW TO BOOK:
+- Online booking available at vitalumina.co.uk
+- Consultations are private and personalised
+- Patients are seen personally by Dr. Gregorio
+
+RECEPTIONIST GUIDELINES:
+- Be warm, professional and elegant - matching the clinic's tone
+- Answer questions about treatments, pricing (say prices vary and a consultation is needed for exact quotes), locations and booking
+- When booking, collect: full name, phone number, desired treatment/concern, preferred location, preferred date and time
+- For urgent medical concerns or complex queries, use the escalate_to_human tool
+- Never give specific medical advice - always recommend a consultation with Dr. Gregorio
+- Emphasise the doctor-led, natural-results approach of Vitalumina`;
 
 async function pabauGet(path) {
   const res = await fetch(`${PABAU_BASE}/${path}`);
@@ -51,7 +95,7 @@ async function findOrCreateClient({ name, phone }) {
 const TOOLS = [
   {
     name: "check_availability",
-    description: "Check available appointment slots for a given date",
+    description: "Check available appointment slots for a given date at Vitalumina",
     input_schema: {
       type: "object",
       properties: { date: { type: "string", description: "Date in YYYY-MM-DD format" } },
@@ -60,7 +104,7 @@ const TOOLS = [
   },
   {
     name: "book_appointment",
-    description: "Book an appointment for a patient in Pabau",
+    description: "Book an appointment for a patient at Vitalumina",
     input_schema: {
       type: "object",
       properties: {
@@ -69,13 +113,14 @@ const TOOLS = [
         service: { type: "string" },
         date: { type: "string" },
         time: { type: "string" },
+        location: { type: "string", description: "Preferred clinic location" },
       },
       required: ["patient_name", "patient_phone", "service", "date", "time"],
     },
   },
   {
     name: "cancel_appointment",
-    description: "Cancel an existing appointment by patient phone",
+    description: "Cancel an existing appointment",
     input_schema: {
       type: "object",
       properties: {
@@ -87,7 +132,7 @@ const TOOLS = [
   },
   {
     name: "escalate_to_human",
-    description: "Transfer conversation to a human staff member",
+    description: "Transfer the conversation to Dr. Gregorio or a staff member",
     input_schema: {
       type: "object",
       properties: {
@@ -109,7 +154,8 @@ async function executeTool(name, input) {
     if (!client) return { success: false, error: "Could not find or create patient" };
     const appt = await pabauPost("appointments/create", {
       client_id: client.id, service: input.service,
-      start_date: input.date, start_time: input.time, notes: "Booked via WhatsApp",
+      start_date: input.date, start_time: input.time,
+      notes: `Booked via WhatsApp. Location preference: ${input.location || "Any"}`,
     });
     return { success: true, appointment: appt };
   }
@@ -124,9 +170,9 @@ async function executeTool(name, input) {
   if (name === "escalate_to_human") {
     if (HUMAN_PHONE) {
       await sendWhatsAppMessage(HUMAN_PHONE,
-        `🚨 Patient needs help\nReason: ${input.reason}\nPatient: ${input.patient_name || "Unknown"}`);
+        `🌿 Vitalumina - Patient query\nReason: ${input.reason}\nPatient: ${input.patient_name || "Unknown"}`);
     }
-    return { success: true, message: "Staff has been notified and will contact you shortly." };
+    return { success: true, message: "Our team has been notified and will be in touch shortly." };
   }
   return { error: "Unknown tool" };
 }
@@ -170,7 +216,7 @@ async function runAgent(from, userText) {
     });
   }
 
-  const replyText = response.content.find((b) => b.type === "text")?.text || "Sorry, I could not process your request.";
+  const replyText = response.content.find((b) => b.type === "text")?.text || "I'm sorry, I could not process your request. Please contact us at vitalumina.co.uk";
   history.push({ role: "assistant", content: replyText });
   return replyText;
 }
@@ -180,7 +226,7 @@ app.get("/webhook", (req, res) => {
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("Webhook verified");
+    console.log("Webhook verified ✓");
     res.status(200).send(challenge);
   } else { res.sendStatus(403); }
 });
@@ -199,7 +245,11 @@ app.post("/webhook", async (req, res) => {
   } catch (err) { console.error("Webhook error:", err); }
 });
 
-app.get("/", (req, res) => res.json({ status: "ok", service: "WhatsApp Clinic Agent" }));
+app.get("/", (req, res) => res.json({ 
+  status: "ok", 
+  service: "Vitalumina WhatsApp Receptionist",
+  clinic: "vitalumina.co.uk"
+}));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🌿 Vitalumina WhatsApp Agent running on port ${PORT}`));
