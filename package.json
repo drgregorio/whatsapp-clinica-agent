@@ -1,0 +1,11 @@
+{
+  "name": "whatsapp-clinica-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": { "start": "node index.js" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "express": "^4.18.2"
+  }
+}
