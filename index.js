@@ -71,7 +71,7 @@ async function runAgent(from, userText) {
   history.push({ role: "user", parts: [{ text: userText }] });
 
   const response = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: "gemini-2.5-flash-lite",
     contents: history,
     config: { systemInstruction: SYSTEM_PROMPT },
   });
