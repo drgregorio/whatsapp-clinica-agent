@@ -12,6 +12,13 @@ const HUMAN_PHONE = process.env.HUMAN_PHONE;
 
 const conversations = new Map();
 
+// Model fallback chain: try in order, skip on 503
+const MODELS = [
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+];
+
 const SYSTEM_PROMPT = `You are the virtual receptionist for Dr. Gregorio De Carvalho, a specialist in aesthetic medicine working across two clinics in London. Always communicate in the same language the patient uses (English or Spanish).
 
 CLINIC 1: VITALUMINA
@@ -42,6 +49,38 @@ GUIDELINES:
 - Never give specific medical advice
 - For urgent queries escalate to human`;
 
+async function generateWithFallback(contents) {
+  let lastError;
+  for (const model of MODELS) {
+    const maxRetries = model === MODELS[0] ? 3 : 1;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`[AI] Trying model: ${model} (attempt ${attempt})`);
+        const response = await genAI.models.generateContent({
+          model,
+          contents,
+          config: { systemInstruction: SYSTEM_PROMPT },
+        });
+        console.log(`[AI] Success with model: ${model}`);
+        return response;
+      } catch (err) {
+        const status = err?.status || err?.error?.code;
+        const isRetryable = status === 503 || status === 429 || (err.message && err.message.includes('UNAVAILABLE'));
+        console.log(`[AI] ${model} attempt ${attempt} failed: status=${status} retryable=${isRetryable}`);
+        lastError = err;
+        if (!isRetryable) throw err;
+        if (attempt < maxRetries) {
+          const delay = 1000 * Math.pow(2, attempt - 1);
+          console.log(`[AI] Waiting ${delay}ms before retry...`);
+          await new Promise(r => setTimeout(r, delay));
+        }
+      }
+    }
+    console.log(`[AI] All retries exhausted for ${model}, trying next model...`);
+  }
+  throw lastError;
+}
+
 async function sendWhatsAppMessage(to, text) {
   console.log(`[SEND] Sending to ${to}: ${text.substring(0, 80)}`);
   const url = `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`;
@@ -67,22 +106,13 @@ async function runAgent(from, userText) {
   console.log(`[AGENT] From ${from}: "${userText}"`);
   if (!conversations.has(from)) conversations.set(from, []);
   const history = conversations.get(from);
-
   history.push({ role: "user", parts: [{ text: userText }] });
-
-  const response = await genAI.models.generateContent({
-    model: "gemini-2.5-flash-lite",
-    contents: history,
-    config: { systemInstruction: SYSTEM_PROMPT },
-  });
-
+  const response = await generateWithFallback(history);
   const replyText = response.text || "I'm sorry, please visit vitalumina.co.uk or call us.";
   console.log(`[AGENT] Reply: "${replyText.substring(0, 100)}"`);
-
   history.push({ role: "model", parts: [{ text: replyText }] });
   if (history.length > 20) history.splice(0, history.length - 20);
   conversations.set(from, history);
-
   return replyText;
 }
 
