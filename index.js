@@ -215,7 +215,7 @@ async function runAgent(from, userText) {
   if (!conversations.has(from)) conversations.set(from, []);
   const history = conversations.get(from);
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.0-flash-exp",
     systemInstruction: SYSTEM_PROMPT,
     tools: [{ functionDeclarations: TOOLS }],
   });
