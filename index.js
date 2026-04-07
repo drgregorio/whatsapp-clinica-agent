@@ -15,7 +15,6 @@ const HUMAN_PHONE = process.env.HUMAN_PHONE;
 const conversations = new Map();
 
 const SYSTEM_PROMPT = `You are the virtual receptionist for Dr. Gregorio De Carvalho, a specialist in aesthetic medicine working across two clinics in London.
-
 Always communicate in the same language the patient uses (English or Spanish).
 
 CLINIC 1: VITALUMINA
@@ -187,37 +186,46 @@ async function executeTool(name, args) {
 }
 
 async function sendWhatsAppMessage(to, text) {
-  await fetch(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
+  console.log(`[SEND] Sending message to ${to}: ${text.substring(0, 50)}...`);
+  const url = `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`;
+  const body = {
+    messaging_product: "whatsapp",
+    to,
+    type: "text",
+    text: { body: text },
+  };
+  console.log(`[SEND] URL: ${url}`);
+  console.log(`[SEND] PHONE_NUMBER_ID: ${PHONE_NUMBER_ID}`);
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${WHATSAPP_TOKEN}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body: text },
-    }),
+    body: JSON.stringify(body),
   });
+  const data = await res.json();
+  console.log(`[SEND] Response status: ${res.status}`);
+  console.log(`[SEND] Response:`, JSON.stringify(data));
+  return data;
 }
 
 async function runAgent(from, userText) {
+  console.log(`[AGENT] Running agent for ${from}: "${userText}"`);
   if (!conversations.has(from)) conversations.set(from, []);
   const history = conversations.get(from);
-
   const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash",
     systemInstruction: SYSTEM_PROMPT,
     tools: [{ functionDeclarations: TOOLS }],
   });
-
   const chat = model.startChat({ history });
   let result = await chat.sendMessage(userText);
   let response = result.response;
-
+  console.log(`[AGENT] Gemini response received`);
   while (response.functionCalls && response.functionCalls().length > 0) {
     const calls = response.functionCalls();
+    console.log(`[AGENT] Function calls:`, calls.map(c => c.name));
     const toolResults = [];
     for (const call of calls) {
       const output = await executeTool(call.name, call.args);
@@ -231,32 +239,53 @@ async function runAgent(from, userText) {
     result = await chat.sendMessage(toolResults);
     response = result.response;
   }
-
   const replyText = response.text() || "I'm sorry, please visit vitalumina.co.uk";
-
-  // Update history for next turn
+  console.log(`[AGENT] Reply: "${replyText.substring(0, 100)}..."`);
   const updatedHistory = await chat.getHistory();
   if (updatedHistory.length > 20) updatedHistory.splice(0, updatedHistory.length - 20);
   conversations.set(from, updatedHistory);
-
   return replyText;
 }
 
 app.get("/webhook", (req, res) => {
+  console.log(`[WEBHOOK] GET verification request`);
   const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
-  if (mode === "subscribe" && token === VERIFY_TOKEN) res.status(200).send(challenge);
-  else res.sendStatus(403);
+  console.log(`[WEBHOOK] mode=${mode}, token=${token}`);
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log(`[WEBHOOK] Verification successful`);
+    res.status(200).send(challenge);
+  } else {
+    console.log(`[WEBHOOK] Verification failed`);
+    res.sendStatus(403);
+  }
 });
 
 app.post("/webhook", async (req, res) => {
+  console.log(`[WEBHOOK] POST received`);
+  console.log(`[WEBHOOK] Body:`, JSON.stringify(req.body).substring(0, 500));
   res.sendStatus(200);
   try {
-    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    if (!message || message.type !== "text") return;
-    const reply = await runAgent(message.from, message.text.body);
-    await sendWhatsAppMessage(message.from, reply);
+    const entry = req.body.entry?.[0];
+    const change = entry?.changes?.[0];
+    const value = change?.value;
+    const message = value?.messages?.[0];
+    console.log(`[WEBHOOK] Message:`, JSON.stringify(message));
+    if (!message) {
+      console.log(`[WEBHOOK] No message found in body`);
+      return;
+    }
+    if (message.type !== "text") {
+      console.log(`[WEBHOOK] Non-text message type: ${message.type}`);
+      return;
+    }
+    const from = message.from;
+    const text = message.text.body;
+    console.log(`[WEBHOOK] Processing message from ${from}: "${text}"`);
+    const reply = await runAgent(from, text);
+    await sendWhatsAppMessage(from, reply);
+    console.log(`[WEBHOOK] Reply sent successfully`);
   } catch (err) {
-    console.error("Webhook error:", err);
+    console.error("[WEBHOOK] Error:", err);
   }
 });
 
