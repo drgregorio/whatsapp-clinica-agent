@@ -1,10 +1,10 @@
 import express from "express";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const app = express();
 app.use(express.json());
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const PABAU_API_KEY = process.env.PABAU_API_KEY;
 const PABAU_BASE = `https://api.oauth.pabau.com/${PABAU_API_KEY}`;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
@@ -66,7 +66,7 @@ GUIDELINES:
 - Be warm, professional and elegant
 - For pricing: explain that prices vary and a consultation is needed for exact quotes
 - Never give specific medical advice - always recommend a consultation with Dr. Gregorio
-- For urgent or complex queries use escalate_to_human tool`;
+- For urgent or complex queries escalate to human`;
 
 async function pabauGet(path) {
   const res = await fetch(`${PABAU_BASE}/${path}`);
@@ -88,53 +88,98 @@ async function findOrCreateClient({ name, phone }) {
     if (search.clients?.length) return search.clients[0];
     const parts = name.trim().split(" ");
     return await pabauPost("clients/create", {
-      Fname: parts[0], Lname: parts.slice(1).join(" ") || "", Mobile: phone,
+      Fname: parts[0],
+      Lname: parts.slice(1).join(" ") || "",
+      Mobile: phone,
     });
-  } catch (e) { console.error("Pabau client error:", e); return null; }
+  } catch (e) {
+    console.error("Pabau client error:", e);
+    return null;
+  }
 }
 
 const TOOLS = [
-  { name: "check_availability", description: "Check available appointment slots for a given date",
-    input_schema: { type: "object", properties: { date: { type: "string", description: "Date in YYYY-MM-DD format" } }, required: ["date"] } },
-  { name: "book_appointment", description: "Book an appointment for a patient with Dr. Gregorio",
-    input_schema: { type: "object", properties: {
-      patient_name: { type: "string" }, patient_phone: { type: "string" }, service: { type: "string" },
-      date: { type: "string" }, time: { type: "string" },
-      location: { type: "string", description: "Preferred clinic: Cornhill, Chelsea Bridge, Harley St, or Kensington/Ice Health" }
-    }, required: ["patient_name", "patient_phone", "service", "date", "time"] } },
-  { name: "cancel_appointment", description: "Cancel an existing appointment",
-    input_schema: { type: "object", properties: { patient_phone: { type: "string" }, appointment_id: { type: "string" } }, required: ["patient_phone"] } },
-  { name: "escalate_to_human", description: "Transfer conversation to Dr. Gregorio or clinic staff",
-    input_schema: { type: "object", properties: { reason: { type: "string" }, patient_name: { type: "string" } }, required: ["reason"] } },
+  {
+    name: "check_availability",
+    description: "Check available appointment slots for a given date",
+    parameters: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "Date in YYYY-MM-DD format" }
+      },
+      required: ["date"]
+    }
+  },
+  {
+    name: "book_appointment",
+    description: "Book an appointment for a patient with Dr. Gregorio",
+    parameters: {
+      type: "object",
+      properties: {
+        patient_name: { type: "string" },
+        patient_phone: { type: "string" },
+        service: { type: "string" },
+        date: { type: "string" },
+        time: { type: "string" },
+        location: { type: "string", description: "Preferred clinic: Cornhill, Chelsea Bridge, Harley St, or Kensington/Ice Health" }
+      },
+      required: ["patient_name", "patient_phone", "service", "date", "time"]
+    }
+  },
+  {
+    name: "cancel_appointment",
+    description: "Cancel an existing appointment",
+    parameters: {
+      type: "object",
+      properties: {
+        patient_phone: { type: "string" },
+        appointment_id: { type: "string" }
+      },
+      required: ["patient_phone"]
+    }
+  },
+  {
+    name: "escalate_to_human",
+    description: "Transfer conversation to Dr. Gregorio or clinic staff",
+    parameters: {
+      type: "object",
+      properties: {
+        reason: { type: "string" },
+        patient_name: { type: "string" }
+      },
+      required: ["reason"]
+    }
+  },
 ];
 
-async function executeTool(name, input) {
+async function executeTool(name, args) {
   if (name === "check_availability") {
-    const data = await pabauGet(`appointments?date=${input.date}`);
-    return { date: input.date, appointments: data.appointments || [] };
+    const data = await pabauGet(`appointments?date=${args.date}`);
+    return { date: args.date, appointments: data.appointments || [] };
   }
   if (name === "book_appointment") {
-    const client = await findOrCreateClient({ name: input.patient_name, phone: input.patient_phone });
+    const client = await findOrCreateClient({ name: args.patient_name, phone: args.patient_phone });
     if (!client) return { success: false, error: "Could not find or create patient" };
     const appt = await pabauPost("appointments/create", {
-      client_id: client.id, service: input.service,
-      start_date: input.date, start_time: input.time,
-      notes: `Booked via WhatsApp. Location: ${input.location || "TBC"}`,
+      client_id: client.id,
+      service: args.service,
+      start_date: args.date,
+      start_time: args.time,
+      notes: `Booked via WhatsApp. Location: ${args.location || "TBC"}`,
     });
     return { success: true, appointment: appt };
   }
   if (name === "cancel_appointment") {
-    if (input.appointment_id) {
-      await pabauPost(`appointments/${input.appointment_id}/update`, { appointment_status: "Cancelled" });
+    if (args.appointment_id) {
+      await pabauPost(`appointments/${args.appointment_id}/update`, { appointment_status: "Cancelled" });
       return { success: true, message: "Appointment cancelled" };
     }
-    const data = await pabauGet(`appointments?mobile=${input.patient_phone}`);
+    const data = await pabauGet(`appointments?mobile=${args.patient_phone}`);
     return { success: true, upcoming: data.appointments };
   }
   if (name === "escalate_to_human") {
     if (HUMAN_PHONE) {
-      await sendWhatsAppMessage(HUMAN_PHONE,
-        `Dr. Gregorio - Patient query\nReason: ${input.reason}\nPatient: ${input.patient_name || "Unknown"}`);
+      await sendWhatsAppMessage(HUMAN_PHONE, `Dr. Gregorio - Patient query\nReason: ${args.reason}\nPatient: ${args.patient_name || "Unknown"}`);
     }
     return { success: true, message: "Our team has been notified and will be in touch shortly." };
   }
@@ -144,37 +189,56 @@ async function executeTool(name, input) {
 async function sendWhatsAppMessage(to, text) {
   await fetch(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ messaging_product: "whatsapp", to, type: "text", text: { body: text } }),
+    headers: {
+      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body: text },
+    }),
   });
 }
 
 async function runAgent(from, userText) {
   if (!conversations.has(from)) conversations.set(from, []);
   const history = conversations.get(from);
-  history.push({ role: "user", content: userText });
-  if (history.length > 20) history.splice(0, history.length - 20);
-  let response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514", max_tokens: 1024,
-    system: SYSTEM_PROMPT, tools: TOOLS, messages: history,
+
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.0-flash",
+    systemInstruction: SYSTEM_PROMPT,
+    tools: [{ functionDeclarations: TOOLS }],
   });
-  while (response.stop_reason === "tool_use") {
-    history.push({ role: "assistant", content: response.content });
+
+  const chat = model.startChat({ history });
+  let result = await chat.sendMessage(userText);
+  let response = result.response;
+
+  while (response.functionCalls && response.functionCalls().length > 0) {
+    const calls = response.functionCalls();
     const toolResults = [];
-    for (const block of response.content) {
-      if (block.type === "tool_use") {
-        const result = await executeTool(block.name, block.input);
-        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: JSON.stringify(result) });
-      }
+    for (const call of calls) {
+      const output = await executeTool(call.name, call.args);
+      toolResults.push({
+        functionResponse: {
+          name: call.name,
+          response: output,
+        },
+      });
     }
-    history.push({ role: "user", content: toolResults });
-    response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514", max_tokens: 1024,
-      system: SYSTEM_PROMPT, tools: TOOLS, messages: history,
-    });
+    result = await chat.sendMessage(toolResults);
+    response = result.response;
   }
-  const replyText = response.content.find((b) => b.type === "text")?.text || "I'm sorry, please visit vitalumina.co.uk";
-  history.push({ role: "assistant", content: replyText });
+
+  const replyText = response.text() || "I'm sorry, please visit vitalumina.co.uk";
+
+  // Update history for next turn
+  const updatedHistory = await chat.getHistory();
+  if (updatedHistory.length > 20) updatedHistory.splice(0, updatedHistory.length - 20);
+  conversations.set(from, updatedHistory);
+
   return replyText;
 }
 
@@ -191,7 +255,9 @@ app.post("/webhook", async (req, res) => {
     if (!message || message.type !== "text") return;
     const reply = await runAgent(message.from, message.text.body);
     await sendWhatsAppMessage(message.from, reply);
-  } catch (err) { console.error("Webhook error:", err); }
+  } catch (err) {
+    console.error("Webhook error:", err);
+  }
 });
 
 app.get("/", (req, res) => res.json({ status: "ok", service: "Dr. Gregorio - Vitalumina & Ice Health Receptionist" }));
